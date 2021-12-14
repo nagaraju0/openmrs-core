@@ -1,0 +1,89 @@
+pipeline {
+    agent { label 'jdk11-mvn3.8.4' }
+    triggers {
+        upstream(upstreamProjects: 'java-11', threshold: hudson.model.Result.SUCCESS)
+        cron('30 */1 * * 1-5')
+        pollSCM('15 23 * * 0,6')
+    }
+    parameters {
+        choice(name: 'BRANCH_TO_BUILD', choices: ['medical', 'master'], description: 'To Build')
+        string(name: 'MAVEN_GOAL', defaultValue: 'clean package', description: 'For Run')
+    }
+    tools {
+        maven 'MVN_3.8.4'
+    }
+    stages {
+        stage('get clone') {
+            steps {
+                git 'https://github.com/nagaraju0/openmrs-core.git'
+            }
+        }
+        stage('Build') {
+            steps {
+                sh 'mvn clean package'
+            }
+        }
+        stage('Archive') {
+            steps {
+                // archiving artifacts
+                archive 'target/*.jar'
+            }
+        }
+        stage('publish test result') {
+            steps {
+                junit 'target/surefire-reports/*.xml'
+            }
+        }
+        stage("build & SonarQube analysis") {
+            steps {
+                withSonarQubeEnv('My SonarQube Server') {
+                    sh 'mvn clean package sonar:sonar'
+                }
+            }
+        }
+        stage("Quality Gate") {
+            steps {
+                timeout(time: 1, unit: 'HOURS') {
+                    waitForQualityGate abortPipeline: true
+                }
+            }
+        }
+        stage ('Artifactory configuration') {
+            steps {
+                rtMavenDeployer (
+                    id:'MAVEN_DEPLOYER',
+                    serverId:'JFROG-OSS',
+                    releaseRepo:'qt-maven-release',
+                    snapshotRepo:'qt-maven-snapshot'
+                )
+            }
+        }
+        stage ('Exec Maven') {
+            steps {
+                withCredentials([usernamePassword(credentialsId: 'JFROG_ARTIFACTORY', usernameVariable: 'ARTIFACTORY_USERNAME', passwordVariable: 'ARTIFACTORY_PASSWORD')]) {
+                    rtMavenRun (
+                        tool:'MVN_3.8.4',
+                        pom:'pom.xml',
+                        goals:'clean install',
+                        deployerId:'MAVEN_DEPLOYER'
+                    )
+                }
+            }
+        }
+        stage ('Publish build info') {
+            steps {
+                rtPublishBuildInfo (
+                    serverId:'JFROG-OSS'
+                )
+            }
+        }
+    }
+    post {
+        always {
+            mail from: "abbaigarimanavadu77@gmail.com",
+                to: "nagarajucivil011@gmail.com",
+                subject: "status of the pipeline : ${currentBuild.fullDisplayName}",
+                body: "${env.BUILD_URL} has the rsult ${currentBuild.result}"
+        }
+    }
+}
