@@ -1,20 +1,19 @@
 pipeline {
-}
     agent { label 'jdk11-mvn3.8.4' }
     triggers {
-        upstream(upstreamProjects: 'java-11', threshold: hudson.model.Result.SUCCESS)
-        cron('30 */1 * * 1-5')
-        pollSCM('15 23 * * 0,6')
+        upstream(upstreamProjects: 'declarative-pet', threshold: hudson.model.Result.SUCCESS)
+        cron('30 */2 * * 1-5')
+         pollSCM('45 23 * * 0,6') 
     }
     parameters {
-        choice(name: 'BRANCH_TO_BUILD', choices: ['medical', 'master'], description: 'To Build')
-        string(name: 'MAVEN_GOAL', defaultValue: 'clean package', description: 'For Run')
+        choice(name: 'BRANCH_TO_BUILD', choices: ['devops', 'master'], description: 'To Build')
+        string(name: 'MAVEN_GOAL', defaultValue: 'staging', description: '')
     }
     tools {
         maven 'MVN_3.8.4'
     }
     stages {
-        stage('get clone') {
+        stage('Get clone') {
             steps {
                 git 'https://github.com/nagaraju0/openmrs-core.git'
             }
@@ -37,7 +36,7 @@ pipeline {
         }
         stage('build & SonarQube analysis') {
             steps {
-                withSonarQubeEnv('My SonarQube Server') {
+                withSonarQubeEnv(installationName:'SONAR_9.2.1') {
                     sh 'mvn clean package sonar:sonar'
                 }
             }
@@ -49,13 +48,13 @@ pipeline {
                 }
             }
         }
-        stage('Artifactory configuration') {
+        stage('artifacory configuration') {
             steps {
                 rtMavenDeployer (
                     id:'MAVEN_DEPLOYER',
                     serverId:'JFROG-OSS',
-                    rleaseRepo:'qt-maven-releases',
-                    snapshotRepo:'qt-maven-snapshot'
+                    releaseRepo:'qt-maven-releases',
+                    snapshotRepo:'qt-maven-snapshots'
                 )
             }
         }
@@ -66,11 +65,13 @@ pipeline {
                         tool:'MVN_3.8.4',
                         pom:'pom.xml',
                         goals:'clean install',
-                        depolyerId:'MAVEN_DEPLOYER'
+                        deployerId:'MAVEN_DEPLOYER'
+
                     )
+                }      
             }
         }
-        stage ('Publish build info') {
+        stage('publish Build Info') {
             steps {
                 rtPublishBuildInfo (
                     serverId: 'JFROG-OSS'
@@ -80,7 +81,7 @@ pipeline {
     }
     post {
         always {
-            mail from: "abbaigarimanavadu77@gmail.com",
+            mail from: "abbaigarimanavadu@gmail.com",
                 to: "nagarajucivil011@gmail.com",
                 subject: "Status of the pipeline : ${currentBuild.fullDisplayName}",
                 body: "${env.BUILD_URL} has the result ${currentBuild.result}"
